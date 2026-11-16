@@ -104,6 +104,27 @@ describe("ID Ledger Worker API", () => {
     expect((await body(isolated)).items).toMatchObject([{ id: "A", created_at: expect.any(String) }]);
   });
 
+  it("uses the last duplicate case-insensitive ids member", async () => {
+    const payload = '{"ids":["a"],"IDS":["b"],"ids":["c"]}';
+    const response = await request("POST", "/v1/projects/duplicate-valid/ids", payload);
+    expect(response.status).toBe(200);
+    expect(await body(response)).toEqual({ received: 1, inserted: 1 });
+
+    const listing = await request("GET", "/v1/projects/duplicate-valid/ids?since=1970-01-01T00%3A00%3A00Z&until=2100-01-01T00%3A00%3A00Z");
+    const items = (await body(listing)).items as Array<{ id: string }>;
+    expect(items.map((item) => item.id)).toEqual(["c"]);
+  });
+
+  it("validates every duplicate ids member before applying the last value", async () => {
+    const payload = '{"ids":[1],"ids":["ok"]}';
+    const response = await request("POST", "/v1/projects/duplicate-invalid/ids", payload);
+    expect(response.status).toBe(400);
+    expect(await body(response)).toEqual({ error: "invalid JSON body" });
+
+    const listing = await request("GET", "/v1/projects/duplicate-invalid/ids?since=1970-01-01T00%3A00%3A00Z&until=2100-01-01T00%3A00%3A00Z");
+    expect((await body(listing)).items).toEqual([]);
+  });
+
   it("matches Go JSON null, missing, unknown-field, type, and trailing-value behavior", async () => {
     const cases: Array<[string, string]> = [
       ['{"ids":null}', "ids must contain between 1 and 1000 values"],

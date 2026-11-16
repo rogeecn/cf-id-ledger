@@ -141,19 +141,22 @@ function decodeWriteIDs(text: string): string[] | null {
   if (value === null) return null;
   if (typeof value !== "object" || Array.isArray(value)) throw new Error("invalid request object");
 
-  let rawIDs: unknown;
-  for (const [key, field] of Object.entries(value)) {
+  let ids: string[] | null = null;
+  for (const [key, rawValue] of readJSONFields(text)) {
     if (key.toLowerCase() !== "ids") throw new Error("unknown field");
-    rawIDs = field;
+    const field: unknown = JSON.parse(rawValue);
+    if (field === null) {
+      ids = null;
+      continue;
+    }
+    if (!Array.isArray(field)) throw new Error("ids must be an array");
+    ids = field.map((id) => {
+      if (id === null) return "";
+      if (typeof id !== "string") throw new Error("ids must contain strings");
+      return id;
+    });
   }
-  if (rawIDs === null || rawIDs === undefined) return null;
-  if (!Array.isArray(rawIDs)) throw new Error("ids must be an array");
-
-  return rawIDs.map((id) => {
-    if (id === null) return "";
-    if (typeof id !== "string") throw new Error("ids must contain strings");
-    return id;
-  });
+  return ids;
 }
 
 async function listIDs(params: URLSearchParams, projectKey: string, env: Env, head: boolean): Promise<Response> {
@@ -284,7 +287,7 @@ function decodeCursor(value: string): Cursor {
   if (decoded === null) throw new Error("incomplete cursor");
   if (typeof decoded !== "object" || Array.isArray(decoded)) throw new Error("invalid cursor object");
 
-  for (const [key, rawValue] of readCursorFields(json)) {
+  for (const [key, rawValue] of readJSONFields(json)) {
     switch (key.toLowerCase()) {
       case "t":
       case "s":
@@ -309,7 +312,7 @@ function decodeCursor(value: string): Cursor {
   return cursor;
 }
 
-function readCursorFields(json: string): Array<[string, string]> {
+function readJSONFields(json: string): Array<[string, string]> {
   let position = skipJSONSpace(json, 0);
   const fields: Array<[string, string]> = [];
   if (json[position] !== "{") return fields;
