@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cf-id-ledger-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-16",
+  "vars": {
+    "ID_LEDGER_TOKEN": "local-test-token"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cf-id-ledger-test",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
