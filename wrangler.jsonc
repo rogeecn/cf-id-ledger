@@ -2,13 +2,27 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "cf-id-ledger",
   "main": "src/index.ts",
+  "account_id": "3fa0cfdb08592ca45fb5677a46c9c0ff",
   "compatibility_date": "2026-11-16",
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "cf-id-ledger",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "072d57c0-3ac7-42bb-8221-4dcc33de77f3",
       "migrations_dir": "migrations"
     }
-  ]
+  ],
+  "routes": [
+    {
+      "pattern": "id-ledger.ipao.vip",
+      "custom_domain": true,
+      "zone_name": "ipao.vip"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  }
 }

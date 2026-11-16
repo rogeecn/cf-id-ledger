@@ -8,7 +8,7 @@ A Cloudflare Worker and D1 migration of the Go ID Ledger API. The contract basel
 - `POST /v1/projects/{project_key}/ids` requires `Authorization: Bearer <token>` and a JSON body such as `{"ids":["a","b"]}`. IDs and project keys are case-sensitive. The server assigns the first-write UTC timestamp; retries do not change it.
 - `GET /v1/projects/{project_key}/ids?since=<RFC3339>&until=<RFC3339>&limit=100` returns IDs in descending timestamp and binary ID order. `since` is inclusive, `until` is exclusive and optional, and `limit` is 1–1000. Follow `next_cursor` to read later pages; it keeps the original time bounds.
 
-`ID_LEDGER_TOKEN` is required at runtime. Local secrets belong in ignored `.dev.vars`; production secrets are set with Wrangler. Do not put real tokens in `wrangler.jsonc`, `.dev.vars.example`, CI, or source control.
+`ID_LEDGER_TOKEN` is required at runtime as the API Bearer secret. It is distinct from the Cloudflare OAuth credentials Wrangler uses for deployment. Local secrets belong in ignored `.dev.vars`; production secrets are passed with a protected temporary JSON file. Do not put real tokens in `wrangler.jsonc`, `.dev.vars.example`, CI, or source control.
 
 ## Development
 
@@ -22,7 +22,7 @@ npx wrangler d1 migrations apply cf-id-ledger --local
 npm run dev
 ```
 
-The main `wrangler.jsonc` intentionally has a placeholder D1 UUID. The Vitest-only `wrangler.test.jsonc` uses an isolated local D1 binding and a non-production test token.
+The main `wrangler.jsonc` targets the existing production account, D1 database, and exact Custom Domain. The Vitest-only `wrangler.test.jsonc` uses an isolated local D1 binding and a non-production test token.
 
 ```sh
 npm test
@@ -52,23 +52,56 @@ See `docs/verification.md` for per-file coverage denominators, recorded metrics,
 
 ## Production setup
 
-These are operator steps; this repository has not created a Cloudflare account resource or deployed a Worker.
+Production resources already exist in Cloudflare:
 
-1. Create the D1 database with `npx wrangler d1 create cf-id-ledger` and replace the all-zero `database_id` in `wrangler.jsonc` with the returned UUID.
-2. Apply the schema with `npx wrangler d1 migrations apply cf-id-ledger --remote`.
-3. Set the production token with `npx wrangler secret put ID_LEDGER_TOKEN`.
-4. Review `npm run build`, deploy with `npx wrangler deploy`, then attach the intended hostname or route in the Cloudflare account.
-5. Verify `/healthz` and an authenticated API request before directing clients to the Worker.
+- Account: `3fa0cfdb08592ca45fb5677a46c9c0ff`.
+- Worker: `cf-id-ledger`, with an active deployment.
+- D1: `cf-id-ledger`, UUID `072d57c0-3ac7-42bb-8221-4dcc33de77f3`.
+- Zone: active `ipao.vip`.
 
-Optional route declaration example for a future real hostname (documentation only; it is not configured in this repository):
+The target hostname is the exact Custom Domain `id-ledger.ipao.vip`, configured in `wrangler.jsonc` with `custom_domain: true` and `zone_name: "ipao.vip"`. Before this config change, the preflight found no existing Worker custom domains or zone routes. Wrangler's non-interactive Custom Domain publish replaces a conflicting record for this hostname through the Worker API; do not manually delete DNS or change unrelated records. Deployment records and live verification results are recorded in the deployment issue.
 
-```jsonc
-{
-  "routes": [{ "pattern": "ledger.example.com/*", "zone_name": "example.com" }]
-}
+Workers Traces are enabled without a sampling override, so Cloudflare's default sampling rate of `1` (100%) applies. Cloudflare states that stored traces count toward account usage and storage pricing beginning 2026-12-01.
+
+The existing D1 database is reused, and the Worker already has the `ID_LEDGER_TOKEN` binding. Do not create another database or import the legacy SQLite data for this redeploy. Check remote migrations before every rollout:
+
+```sh
+npx wrangler d1 migrations list cf-id-ledger --remote
 ```
 
+As of the 2026-11-16 preflight, there were no pending migrations, so no production migration apply was needed. Only apply a separately reviewed, pending schema migration. Keep the general SQLite migration and rollback procedure below for a future, explicitly approved data move.
+
+`ID_LEDGER_TOKEN` is the API's runtime Bearer secret; it is not the Cloudflare OAuth credential Wrangler uses for account access. The Worker already has an `ID_LEDGER_TOKEN` secret binding. To guarantee the value loaded by `~/.zshenv` is included in the same Worker version as the code, use Wrangler's additive `--secrets-file` option. Generate a protected temporary JSON file; do not place the token in Wrangler config, shell arguments, or source control. Wrangler accepts JSON or dotenv input; JSON avoids dotenv variable expansion, and omitted secrets are not deleted.
+
+After review, run the following from zsh, where `~/.zshenv` exports `ID_LEDGER_TOKEN`:
+
+```sh
+set -eu
+npm run build
+umask 077
+export ID_LEDGER_TOKEN
+secret_file="$(mktemp "${TMPDIR:-/tmp}/cf-id-ledger-secrets.XXXXXX")"
+chmod 600 "$secret_file"
+trap 'rm -f "$secret_file"' EXIT
+python3 - "$secret_file" <<'PY'
+import json
+import os
+import sys
+
+value = os.environ.get("ID_LEDGER_TOKEN")
+if not value:
+    raise SystemExit("ID_LEDGER_TOKEN is not exported")
+with open(sys.argv[1], "w", encoding="utf-8") as secret_file:
+    json.dump({"ID_LEDGER_TOKEN": value}, secret_file)
+PY
+npx wrangler deploy --secrets-file "$secret_file"
+```
+
+`npm run build` is a dry run. The final command performs the live deployment, uploads this secret with the Worker version, and publishes the configured Custom Domain. Verify `/healthz` and an authenticated API request before directing clients to the Worker.
+
 ## Moving existing SQLite data
+
+This procedure is not part of the current redeploy: production D1 already exists, has its schema, and has no pending migrations. Do not import legacy SQLite data for this deployment. Keep the procedure for a separate, explicitly approved data migration.
 
 Do the cutover with writes paused. DNS caches can keep clients reaching the old endpoint after a route change, so the old writer must remain paused through the cutover and rollback decision.
 
