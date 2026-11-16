@@ -126,7 +126,7 @@ If cutover fails before the Worker accepts writes, route clients back to the old
 
 ## Verification summary
 
-Latest local run: TypeScript 17 tests passed; `src/index.ts` coverage was 93.09% statements (256/275), 89.65% branches (182/203), 93.75% functions (30/32), and 97.35% lines (221/227). The duplicate-member fix has 13/13 changed executable lines covered. Python 3.15 with coverage.py 7.17.3 ran 8 migration tests and 5 query-client tests; `scripts/migrate.py` measured 97% combined coverage (63/64 statements, 13/14 branches) and `skills/id-ledger-query/scripts/query_ids.py` measured 81% combined coverage (68/81 statements, 19/26 branches). See `docs/verification.md` and the task evidence logs for the changed-line coverage method, full commands, and local D1 four-row exact verification.
+Latest local run: TypeScript 21 tests passed; `src/index.ts` coverage was 93.21% statements (261/280), 89.85% branches (186/207), 93.75% functions (30/32), and 97.4% lines (225/231). The null slice reuse fix has 6/6 changed executable lines covered. All 15 QA raw-request cases match the original Go endpoint in status, exact response body, and stored IDs. Python 3.15 with coverage.py 7.17.3 ran 8 migration tests and 5 query-client tests; `scripts/migrate.py` measured 97% combined coverage (63/64 statements, 13/14 branches) and `skills/id-ledger-query/scripts/query_ids.py` measured 81% combined coverage (68/81 statements, 19/26 branches). Python coverage and the local D1 four-row exact verification are reused from commit `3b60448`. See `docs/verification.md` and the task evidence logs for full commands and results.
 
 ## Query client
 

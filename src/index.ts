@@ -142,17 +142,22 @@ function decodeWriteIDs(text: string): string[] | null {
   if (typeof value !== "object" || Array.isArray(value)) throw new Error("invalid request object");
 
   let ids: string[] | null = null;
+  let elements: string[] = [];
   for (const [key, rawValue] of readJSONFields(text)) {
     if (key.toLowerCase() !== "ids") throw new Error("unknown field");
     const field: unknown = JSON.parse(rawValue);
     if (field === null) {
       ids = null;
+      elements = [];
       continue;
     }
     if (!Array.isArray(field)) throw new Error("ids must be an array");
-    ids = field.map((id) => {
-      if (id === null) return "";
+    if (field.length === 0) elements = [];
+    // Go reuses its slice backing array across duplicate fields; null leaves existing string slots unchanged.
+    ids = field.map((id, index) => {
+      if (id === null) return elements[index] ?? "";
       if (typeof id !== "string") throw new Error("ids must contain strings");
+      elements[index] = id;
       return id;
     });
   }

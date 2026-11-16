@@ -125,6 +125,52 @@ describe("ID Ledger Worker API", () => {
     expect((await body(listing)).items).toEqual([]);
   });
 
+  it("reuses a prior duplicate ids member's backing value for null", async () => {
+    const response = await request("POST", "/v1/projects/null-reuse-one/ids", '{"ids":["a"],"ids":[null]}');
+    expect(response.status).toBe(200);
+    expect(await body(response)).toEqual({ received: 1, inserted: 1 });
+
+    const listing = await request("GET", "/v1/projects/null-reuse-one/ids?since=1970-01-01T00%3A00%3A00Z&until=2100-01-01T00%3A00%3A00Z");
+    const items = (await body(listing)).items as Array<{ id: string }>;
+    expect(items.map((item) => item.id)).toEqual(["a"]);
+  });
+
+  it("reuses duplicate ids member values by index after shrink and expansion", async () => {
+    const response = await request("POST", "/v1/projects/null-reuse-many/ids", '{"ids":["a","b"],"ids":[null,"c"]}');
+    expect(response.status).toBe(200);
+    expect(await body(response)).toEqual({ received: 2, inserted: 2 });
+
+    const listing = await request("GET", "/v1/projects/null-reuse-many/ids?since=1970-01-01T00%3A00%3A00Z&until=2100-01-01T00%3A00%3A00Z");
+    const items = (await body(listing)).items as Array<{ id: string }>;
+    expect(items.map((item) => item.id)).toEqual(["c", "a"]);
+  });
+
+  it("retains duplicate ids member values beyond a shorter array", async () => {
+    const response = await request("POST", "/v1/projects/null-reuse-expand/ids", '{"ids":["a","b"],"ids":["c"],"ids":[null,null]}');
+    expect(response.status).toBe(200);
+    expect(await body(response)).toEqual({ received: 2, inserted: 2 });
+
+    const listing = await request("GET", "/v1/projects/null-reuse-expand/ids?since=1970-01-01T00%3A00%3A00Z&until=2100-01-01T00%3A00%3A00Z");
+    const items = (await body(listing)).items as Array<{ id: string }>;
+    expect(items.map((item) => item.id)).toEqual(["c", "b"]);
+  });
+
+  it("clears duplicate ids member backing values for an empty or null member", async () => {
+    const cases = [
+      ["empty-array", '{"ids":["a"],"ids":[],"ids":[null]}'],
+      ["null-member", '{"ids":["a"],"ids":null,"ids":[null]}'],
+      ["empty-string", '{"ids":[""],"ids":[null]}'],
+    ] as const;
+    for (const [project, payload] of cases) {
+      const response = await request("POST", `/v1/projects/null-reuse-${project}/ids`, payload);
+      expect(response.status, payload).toBe(400);
+      expect(await body(response), payload).toEqual({ error: "ids cannot contain empty strings" });
+
+      const listing = await request("GET", `/v1/projects/null-reuse-${project}/ids?since=1970-01-01T00%3A00%3A00Z&until=2100-01-01T00%3A00%3A00Z`);
+      expect((await body(listing)).items, payload).toEqual([]);
+    }
+  });
+
   it("matches Go JSON null, missing, unknown-field, type, and trailing-value behavior", async () => {
     const cases: Array<[string, string]> = [
       ['{"ids":null}', "ids must contain between 1 and 1000 values"],

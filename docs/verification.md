@@ -13,7 +13,7 @@ The red run before the Worker change failed as expected: it stored `b` instead o
 
 ## TypeScript Worker
 
-Latest full suite ran through `npm run coverage` from `cf-id-ledger/`: both test files passed, 17 tests total. `npm run typecheck` passed. `npm run build` passed as a Wrangler dry run after the runtime change. Reproduce the focused QA run with these commands from `cf-id-ledger/`:
+The previous duplicate-member rework full suite ran through `npm run coverage` from `cf-id-ledger/`: both test files passed, 17 tests total. `npm run typecheck` passed. `npm run build` passed as a Wrangler dry run after that runtime change. Reproduce the focused QA run with these commands from `cf-id-ledger/`:
 
 ```sh
 npm test -- test/api.test.ts -t duplicate --reporter=verbose
@@ -36,6 +36,52 @@ Logs and retained reports: `../evidence/duplicate-json/coverage.log`, `../eviden
 Changed executable-line coverage is 13/13 (100%). The calculation intersects added/replaced lines in `git diff 3b60448` with current LCOV `DA` records. Covered `src/index.ts` lines: 144, 145, 147, 148, 149, 150, 152, 153, 154, 155, 156, 159, and 290. The result is `../evidence/duplicate-json/changed-line-coverage.json`.
 
 The rollback test sends 999 unique IDs followed by `fail-last` as item 1,000. It verifies that a failed batch leaves only the preexisting row with its original timestamp, retry inserts 1,000 IDs, and a second retry inserts zero without changing that timestamp.
+
+## Duplicate JSON null slice reuse
+
+Two raw request bodies now verify Go's slice backing-array behavior across duplicate `ids` members:
+
+- `{"ids":["a"],"ids":[null]}` returns HTTP 200 with `{"received":1,"inserted":1}`; listing the project returns only `a`.
+- `{"ids":["a","b"],"ids":[null,"c"]}` returns HTTP 200 with `{"received":2,"inserted":2}`; listing returns `c`, then `a` in descending binary ID order.
+
+A shrink-and-expand case, `{"ids":["a","b"],"ids":["c"],"ids":[null,null]}`, returns `c`, then `b`, retaining the slot beyond the shorter middle array. Reset cases `{"ids":["a"],"ids":[],"ids":[null]}`, `{"ids":["a"],"ids":null,"ids":[null]}`, and `{"ids":[""],"ids":[null]}` each return HTTP 400 with `{"error":"ids cannot contain empty strings"}` and leave the project empty.
+
+Before the implementation change, `npm test -- test/api.test.ts -t 'duplicate ids member' --reporter=verbose` exited 1: the three value-reuse cases failed with HTTP 400, while the reset and earlier duplicate validation cases passed. After the change, the same command passed 5 tests with 15 skipped. The one full `npm run coverage` run passed both files and all 21 tests. Latest `src/index.ts` coverage:
+
+| Metric | Covered / total | Result |
+| --- | ---: | ---: |
+| Statements | 261 / 280 | 93.21% |
+| Branches | 186 / 207 | 89.85% |
+| Functions | 30 / 32 | 93.75% |
+| Lines | 225 / 231 | 97.4% |
+
+`npm run typecheck` passed. `npm run build` passed as a Wrangler dry run (14.44 KiB upload, 4.34 KiB gzip). Changed executable-line coverage relative to `12ac8f2540647c7ed1d4ee5ba3f184a47fd5b3d7` is 6/6 (100%). Added/replaced diff lines were intersected with the current LCOV `DA` records: lines 145, 151, 155, 157, 158, and 160 are all covered. The calculation and output are included as `check_changed_lines.py` and `changed-line-coverage.json` in the evidence attachment.
+
+Logs and reports: `../evidence/null-reuse/red.log`, `green.log`, `coverage.log`, `lcov.info`, `coverage-summary.json`, `typecheck.log`, and `build-dry-run.log`.
+
+The original Go/Fiber/SQLite endpoint at `a1af667a3b04cd40adc7a4256123de0238f788a2` and the updated Worker through local Wrangler HTTP/D1 both replayed QA's unchanged 15 raw requests. All 15 match in HTTP status, exact response body, and ordered stored IDs. Only the probe's representation of zero database rows is normalized from Go `null` to `[]`; API responses are not normalized.
+
+| QA case | HTTP status on both | Stored IDs on both |
+| --- | ---: | --- |
+| duplicate-case-order | 200 | `c` |
+| invalid-first-valid-overwrite | 400 | none |
+| invalid-first-null-overwrite | 400 | none |
+| valid-first-invalid-overwrite | 400 | none |
+| null-first-valid-overwrite | 200 | `ok-after-null` |
+| valid-first-null-overwrite | 400 | none |
+| slice-reuse-single-null | 200 | `a` |
+| slice-reuse-null-prefix | 200 | `a`, `c` |
+| mixed-case-repeats | 200 | `c` |
+| escaped-ids-key | 200 | `escaped-key` |
+| unknown-before | 400 | none |
+| unknown-after | 400 | none |
+| malformed-json | 400 | none |
+| trailing-json | 400 | none |
+| string-delimiters | 200 | exact original string preserved |
+
+The evidence attachment includes the raw matrix, Go and Worker probe scripts, `original-json-matrix.log`, `worker-json-matrix-run.log`, `check_matrix.py`, and the complete per-case `matrix-comparison.json`. Run the included `bash qa-recheck-evidence/run-go-matrix-probe.sh`, `python3 qa-recheck-evidence/worker_json_matrix_probe.py`, then `python3 check_matrix.py` in the prepared evidence directory. The probe scripts require sibling `id-ledger` and `cf-id-ledger` checkouts and a fresh local D1 state directory. The Worker probe confirmed its Wrangler process exited and its local port closed.
+
+Python coverage and the standalone local D1 migration roundtrip are reused from commit `3b60448`; neither was rerun for this change.
 
 ## Python runtime coverage (unchanged and reused from commit `3b60448`)
 
